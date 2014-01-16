@@ -55,7 +55,12 @@ struct rcksum_state *rcksum_init(zs_blockid nblocks, size_t blocksize,
     z->context = blocksize * require_consecutive_matches;
 
     /* Temporary file to hold the target file as we get blocks for it */
-    z->filename = strdup("/storage/sdcard0/rcksum-XXXXXX");
+    //old:
+    //z->filename = strdup("rcksum-XXXXXX");
+    //new for android:
+    z->filename = malloc(strlen(absolute_path)+14);
+    strcpy(z->filename, absolute_path);
+    strcat(z->filename, "rcksum-XXXXXX");
 
     /* Initialise to 0 various state & stats */
     z->gotblocks = 0;

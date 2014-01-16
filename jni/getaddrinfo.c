@@ -318,7 +318,6 @@ getaddrinfo(nodename, servname, hints, res)
     const struct addrinfo *hints;
     struct addrinfo **res;
 {
-    __android_log_write(ANDROID_LOG_INFO, "@@@@", servname);
     struct addrinfo *head_res = NULL;
     struct addrinfo *tail_res = NULL;
     struct addrinfo *new_res;

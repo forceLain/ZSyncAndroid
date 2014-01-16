@@ -33,6 +33,7 @@
  * - checksum verification of the entire output.
  */
 #include "zsglobal.h"
+const char* absolute_path;
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -530,7 +531,6 @@ int zsync_rename_file(struct zsync_state *zs, const char *f) {
     char *rf = zsync_cur_filename(zs);
 
     int x = rename(rf, f);
-    __android_log_write(ANDROID_LOG_INFO, "@@@@", strerror( errno ));
 
     if (!x) {
         free(rf);

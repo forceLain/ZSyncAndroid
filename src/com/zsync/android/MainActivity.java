@@ -1,7 +1,10 @@
 package com.zsync.android;
 
+import java.io.File;
+
 import android.app.Activity;
 import android.os.Bundle;
+import android.os.Environment;
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.widget.Button;
@@ -18,7 +21,11 @@ public class MainActivity extends Activity {
 			@Override
 			public void onClick(View v) {
 				ZSync zsync = new ZSync();
-				button.setText(String.valueOf(zsync.sync(URL)));
+				File file = new File(getExternalFilesDir(
+			            Environment.DIRECTORY_DOWNLOADS), "zsync");
+				file.mkdirs();
+				String path = file.getAbsolutePath()+File.separator;
+				button.setText(String.valueOf(zsync.sync(MainActivity.this, URL, path)));
 			}
 		});
 		setContentView(button);

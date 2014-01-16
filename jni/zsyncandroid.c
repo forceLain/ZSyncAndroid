@@ -9,20 +9,25 @@
 #include <utime.h>
 
 #include "zsyncandroid.h"
+#include "zsglobal.h"
 #include "http.h"
 #include "libzsync/zsync.h"
 #include "url.h"
 
+const char* absolute_path;
+
 jint
-Java_com_zsync_android_ZSync_dosync(JNIEnv* env, jobject thiz, jstring url){
+Java_com_zsync_android_ZSync_dosync(JNIEnv* env, jobject thiz, jstring url, jstring path){
 
 	//Get the native string from javaString
 	const char *c_url = (*env)->GetStringUTFChars(env, url, 0);
+	absolute_path = (*env)->GetStringUTFChars(env, path, 0); //file path for work and store output files
 
 	int code = doSync(c_url);
 
 	//DON'T FORGET THIS LINE
 	(*env)->ReleaseStringUTFChars(env, url, c_url);
+	(*env)->ReleaseStringUTFChars(env, path, absolute_path);
 	return code;
 }
 /*****************************************************************************************
@@ -277,6 +282,7 @@ void read_seed_file(struct zsync_state *z, const char *fname) {
 /* zs = read_zsync_control_file(location_str)
  * Reads a zsync control file from a URL specified in
  * location_str; only http URLs are supported.
+ * NOTE: zsync control file is not a target file to sync
  */
 struct zsync_state *read_zsync_control_file(const char *p) {
     FILE *f;
@@ -372,9 +378,11 @@ char *get_filename(const struct zsync_state *zs, const char *source_name) {
         if (!filename)
             filename = strdup("zsync-download");
     }
+
     return filename;
 }
 
+/* the main function */
 int doSync(char* url){
 	struct zsync_state *zs;
 	char *temp_file = NULL;
@@ -387,12 +395,9 @@ int doSync(char* url){
 	char *remotefile = url;
 
 
-	{   /* Get proxy setting from the environment */
-		char *pr = getenv("http_proxy");
-
-		if (pr != NULL)
-			set_proxy_from_string(pr);
-	}
+	/* Get proxy setting from the environment */
+	char *pr = getenv("http_proxy");
+	if (pr != NULL) {set_proxy_from_string(pr);}
 
 	/* STEP 1: Read the zsync control file */
 	if ((zs = read_zsync_control_file(remotefile)) == NULL){
@@ -401,10 +406,12 @@ int doSync(char* url){
 	}
 
 	/* Get eventual filename for output, and filename to write to while working */
-	filename = get_filename(zs, remotefile);
-	temp_file = malloc(strlen(filename) + 6 + 18);
-	strcpy(temp_file, "/storage/sdcard0/");
-	strcat(temp_file, filename);
+	char *local_name = get_filename(zs, remotefile);
+	filename = malloc(sizeof(absolute_path)+sizeof(local_name));
+	strcpy(filename, absolute_path);
+	strcat(filename, local_name);
+	temp_file = malloc(strlen(filename)+6);
+	strcpy(temp_file, filename);
 	strcat(temp_file, ".part");
 
 
@@ -528,6 +535,10 @@ int doSync(char* url){
 		printf
 			("No filename specified for download - completed download left in %s\n",
 			 temp_file);
+	}
+
+	if (local_name){
+		free(local_name);
 	}
 
 	/* Final stats and cleanup */
