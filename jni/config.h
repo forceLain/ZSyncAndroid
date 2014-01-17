@@ -74,7 +74,7 @@
 #define PACKAGE_VERSION "0.6.2"
 
 /* The size of `off_t', as computed by sizeof. */
-#define SIZEOF_OFF_T 8
+#define SIZEOF_OFF_T 4
 
 /* The size of `size_t', as computed by sizeof. */
 #define SIZEOF_SIZE_T 4

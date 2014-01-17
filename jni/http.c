@@ -793,23 +793,21 @@ static void range_fetch_getmore(struct range_fetch *rf) {
             lastrange = 1;
 
         /* Append to the request */
-
-
-        snprintf(request + l, sizeof(request) - l, OFF_T_PF "-" OFF_T_PF "%s",
+        //Old:
+        /*
+        sprintf(request + l, sizeof(request) - l, OFF_T_PF "-" OFF_T_PF "%s",
                  rf->ranges_todo[2 * i], rf->ranges_todo[2 * i + 1],
                  lastrange ? "" : ",");
+		*/
 
-        //off_t c1 = rf->ranges_todo[2 * i];
-        //off_t c2 = rf->ranges_todo[2 * i + 1];
-        //snprintf(request + l, sizeof(request) - l, OFF_T_PF "-" OFF_T_PF,
-        //		c1, c2);
-        //if (!lastrange){
-        //	snprintf(request, "%s", ",");
-        //}
-        //char *request2 = "GET /state1/bundle_top_stories.zip HTTP/1.1\r\nUser-Agent: zsync/0.6.2\r\nHost: 162.243.253.131\r\nReferer: http://162.243.253.131/state1/bundle_top_stories.zip.zsync\r\nRange: bytes=0-2002943";
-        //__android_log_write(ANDROID_LOG_ERROR, "@@@@", request);
-        //__android_log_write(ANDROID_LOG_ERROR, "@@@@", request2);
-        //strcpy (request, request2);
+        //New for android:
+        sprintf(request+strlen(request), OFF_T_PF, rf->ranges_todo[2 * i]);
+        sprintf(request+strlen(request), "-" OFF_T_PF, rf->ranges_todo[2 * i + 1]);
+        if (!lastrange){
+        	sprintf(request+strlen(request), "%s", ",");
+        }
+
+
 
         /* And record that we have sent this one */
         rf->rangessent++;

@@ -388,7 +388,7 @@ int doSync(char* url){
 	char *temp_file = NULL;
 	char **seedfiles = NULL;
 	int nseedfiles = 0;
-	char *filename = NULL;
+	char filename[255];
 	long long local_used;
 	char *zfname = NULL;
 	time_t mtime;
@@ -407,9 +407,8 @@ int doSync(char* url){
 
 	/* Get eventual filename for output, and filename to write to while working */
 	char *local_name = get_filename(zs, remotefile);
-	filename = malloc(sizeof(absolute_path)+sizeof(local_name));
-	strcpy(filename, absolute_path);
-	strcat(filename, local_name);
+	memset(filename, '\0', 255);
+	sprintf(filename, "%s%s", absolute_path, local_name);
 	temp_file = malloc(strlen(filename)+6);
 	strcpy(temp_file, filename);
 	strcat(temp_file, ".part");
@@ -529,7 +528,6 @@ int doSync(char* url){
 			}
 		}
 		free(oldfile_backup);
-		free(filename);
 	}
 	else {
 		printf
