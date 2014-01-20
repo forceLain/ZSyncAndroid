@@ -12,11 +12,11 @@ import android.widget.TextView;
 
 public class MainActivity extends Activity implements OnClickListener {
 	
-	Button state1, state2;
+	Button state1, state2, jniMigration;
 	TextView textView;
 	
-	private static final String URL_STATE_1 = "http://162.243.253.131/state1/bundle_top_stories.zip.zsync";
-	private static final String URL_STATE_2 = "http://162.243.253.131/state2/bundle_top_stories.zip.zsync";
+	private static final String URL_STATE_1 = "http://162.243.253.131/state2/bundle_top_stories.zip.zsync";
+	private static final String URL_STATE_2 = "http://162.243.253.131/state3/bundle_top_stories.zip.zsync";
 	
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
@@ -39,12 +39,11 @@ public class MainActivity extends Activity implements OnClickListener {
 		
 		switch (v.getId()) {
 		case R.id.state1:
-			textView.setText(String.valueOf(zsync.sync(MainActivity.this, URL_STATE_1, path)));
+			zsync.startSync(this, URL_STATE_1, path);
 			break;
 		case R.id.state2:
-			textView.setText(String.valueOf(zsync.sync(MainActivity.this, URL_STATE_2, path)));
+			zsync.startSync(this, URL_STATE_2, path);
 			break;
 		}
 	}
-
 }

@@ -4,6 +4,8 @@
         <ignore path="src/com/zsync/android/MainActivity.java" />
     </issue>
     <issue id="NewApi">
+        <ignore path="src/com/zsync/android/GetZsyncControlFileTask.java" />
         <ignore path="src/com/zsync/android/MainActivity.java" />
+        <ignore path="src/com/zsync/android/ZSync.java" />
     </issue>
 </lint>

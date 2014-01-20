@@ -14,21 +14,165 @@
 #include "libzsync/zsync.h"
 #include "url.h"
 
+char* main_url;
 const char* absolute_path;
+char* zsync_file;
+struct zsync_state *zs;
+char filename[255];
+char *temp_file;
+long long http_down;
 
-jint
-Java_com_zsync_android_ZSync_dosync(JNIEnv* env, jobject thiz, jstring url, jstring path){
+//PROTOTYPES
+struct zsync_state *read_zsync_control_file(const char *p);
+char *get_filename(const struct zsync_state *zs, const char *source_name);
+static int set_mtime(char* filename, time_t mtime);
+static void **append_ptrlist(int *n, void **p, void *a);
 
-	//Get the native string from javaString
-	const char *c_url = (*env)->GetStringUTFChars(env, url, 0);
-	absolute_path = (*env)->GetStringUTFChars(env, path, 0); //file path for work and store output files
+void
+Java_com_zsync_android_ZSync_init(JNIEnv* env, jobject thiz, jstring url, jstring path, jstring zsyncfile){
 
-	int code = doSync(c_url);
+	const char* m_url = (*env)->GetStringUTFChars(env, url, 0);
+	const char* m_absolute_path = (*env)->GetStringUTFChars(env, path, 0); //file path for work and store output files
+	const char* m_zsync_file = (*env)->GetStringUTFChars(env, zsyncfile, 0); //pre-downloaded .zsync control file
 
-	//DON'T FORGET THIS LINE
-	(*env)->ReleaseStringUTFChars(env, url, c_url);
-	(*env)->ReleaseStringUTFChars(env, path, absolute_path);
-	return code;
+	main_url = strdup(m_url);
+	absolute_path = strdup(m_absolute_path);
+	zsync_file = strdup(m_zsync_file);
+
+	zs = NULL;
+	temp_file = NULL;
+	zs = read_zsync_control_file(main_url);
+	referer = strdup(main_url);
+	http_down = 0;
+
+	//DON'T FORGET THIS LINES
+	(*env)->ReleaseStringUTFChars(env, url, m_url);
+	(*env)->ReleaseStringUTFChars(env, path, m_absolute_path);
+	(*env)->ReleaseStringUTFChars(env, zsyncfile, m_zsync_file);
+}
+
+void
+Java_com_zsync_android_ZSync_makeTempFile(JNIEnv* env, jobject thiz){
+	char *local_name = get_filename(zs, main_url);
+	memset(filename, '\0', 255);
+	sprintf(filename, "%s%s", absolute_path, local_name);
+	temp_file = malloc(strlen(filename)+6);
+	strcpy(temp_file, filename);
+	strcat(temp_file, ".part");
+	free(local_name);
+}
+
+void
+Java_com_zsync_android_ZSync_readLocal(JNIEnv* env, jobject thiz){
+	char **seedfiles = NULL;
+	int nseedfiles = 0;
+	/* If the target file already exists, we're probably updating that file
+	 * - so it's a seed file */
+	if (!access(filename, R_OK)) {
+		seedfiles = append_ptrlist(&nseedfiles, seedfiles, filename);
+	}
+	/* If the .part file exists, it's probably an interrupted earlier
+	 * effort; a normal HTTP client would 'resume' from where it got to,
+	 * but zsync can't (because we don't know this data corresponds to the
+	 * current version on the remote) and doesn't need to, because we can
+	 * treat it like any other local source of data. Use it now. */
+	if (!access(temp_file, R_OK)) {
+		seedfiles = append_ptrlist(&nseedfiles, seedfiles, temp_file);
+	}
+
+	/* Try any seed files supplied by the command line */
+	int i;
+	for (i = 0; i < nseedfiles; i++) {
+		int dup = 0, j;
+
+		/* And stop reading seed files once the target is complete. */
+		if (zsync_status(zs) >= 2) break;
+
+		/* Skip dups automatically, to save the person running the program
+		 * having to worry about this stuff. */
+		for (j = 0; j < i; j++) {
+			if (!strcmp(seedfiles[i],seedfiles[j])) dup = 1;
+		}
+
+		/* And now, if not a duplicate, read it */
+		if (!dup)
+			read_seed_file(zs, seedfiles[i]);
+	}
+	/* Show how far that got us */
+	long long local_used; //for logging or etc.
+	zsync_progress(zs, &local_used, NULL);
+}
+
+void
+Java_com_zsync_android_ZSync_renameTempFile(JNIEnv* env, jobject thiz){
+	zsync_rename_file(zs, temp_file);
+}
+
+void
+Java_com_zsync_android_ZSync_fetchRemainingBlocks(JNIEnv* env, jobject thiz){
+	fetch_remaining_blocks(zs);
+}
+
+void
+Java_com_zsync_android_ZSync_completeZsync(JNIEnv* env, jobject thiz){
+	zsync_complete(zs);
+}
+
+void
+Java_com_zsync_android_ZSync_completeFile(JNIEnv* env, jobject thiz){
+	time_t mtime;
+	mtime = zsync_mtime(zs);
+	temp_file = zsync_end(zs); //zs releases there!
+
+	char *oldfile_backup = malloc(strlen(filename) + 8);
+	int ok = 1;
+
+	strcpy(oldfile_backup, filename);
+	strcat(oldfile_backup, ".zs-old");
+
+	if (!access(filename, F_OK)) {
+		/* Backup the old file. */
+		/* First, remove any previous backup. We don't care if this fails -
+		 * the link below will catch any failure */
+		unlink(oldfile_backup);
+
+		/* Try linking the filename to the backup file name, so we will
+		   atomically replace the target file in the next step.
+		   If that fails due to EPERM, it is probably a filesystem that
+		   doesn't support hard-links - so try just renaming it to the
+		   backup filename. */
+		if (link(filename, oldfile_backup) != 0
+			&& (errno != EPERM || rename(filename, oldfile_backup) != 0)) {
+			perror("linkname");
+			fprintf(stderr,
+					"Unable to back up old file %s - completed download left in %s\n",
+					filename, temp_file);
+			ok = 0;         /* Prevent overwrite of old file below */
+		}
+	}
+	if (ok) {
+		/* Rename the file to the desired name */
+		if (rename(temp_file, filename) == 0) {
+			/* final, final thing - set the mtime on the file if we have one */
+			if (mtime != -1) set_mtime(filename, mtime);
+		}
+		else {
+			perror("rename");
+			fprintf(stderr,
+					"Unable to back up old file %s - completed download left in %s\n",
+					filename, temp_file);
+		}
+	}
+	free(oldfile_backup);
+}
+
+void
+Java_com_zsync_android_ZSync_release(JNIEnv* env, jobject thiz){
+	if (main_url){free(main_url);}
+	if (absolute_path){free(absolute_path);}
+	if (zsync_file){free(zsync_file);}
+	if (temp_file){free(temp_file);}
+	if (referer){free(referer);}
 }
 /*****************************************************************************************
  *
@@ -157,6 +301,7 @@ int fetch_remaining_blocks_http(struct zsync_state *z, const char *url,
 
     /* Clean up */
     free(buf);
+    http_down += range_fetch_bytes_down(rf);
     zsync_end_receive(zr);
     range_fetch_end(rf);
     free(u);
@@ -289,19 +434,20 @@ struct zsync_state *read_zsync_control_file(const char *p) {
     struct zsync_state *zs;
     char *lastpath = NULL;
 
-	/* No such local file - if not a URL either, report error */
-	if (!is_url_absolute(p)) {
-		__android_log_write(ANDROID_LOG_ERROR, ZSYNC_ANDROID_TAG, "Bad URL");
-		return NULL;
-	}
+	//if (!is_url_absolute(p)) {
+	//	__android_log_write(ANDROID_LOG_ERROR, ZSYNC_ANDROID_TAG, "Bad URL");
+	//	return NULL;
+	//}
 
 	/* Try URL fetch */
-	f = http_get(p, &lastpath, NULL);
-	if (!f) {
-		__android_log_write(ANDROID_LOG_ERROR, ZSYNC_ANDROID_TAG, "could not read control file from URL");
-		return NULL;
-	}
-	referer = lastpath;
+	//f = http_get(p, &lastpath, NULL);
+	//if (!f) {
+	//	__android_log_write(ANDROID_LOG_ERROR, ZSYNC_ANDROID_TAG, "could not read control file from URL");
+	//	return NULL;
+	//}
+
+    f = fopen(zsync_file, "r");
+	//referer = lastpath;
 
     /* Read the .zsync */
     if ((zs = zsync_begin(f)) == NULL) {
@@ -380,167 +526,4 @@ char *get_filename(const struct zsync_state *zs, const char *source_name) {
     }
 
     return filename;
-}
-
-/* the main function */
-int doSync(char* url){
-	struct zsync_state *zs;
-	char *temp_file = NULL;
-	char **seedfiles = NULL;
-	int nseedfiles = 0;
-	char filename[255];
-	long long local_used;
-	char *zfname = NULL;
-	time_t mtime;
-	char *remotefile = url;
-
-
-	/* Get proxy setting from the environment */
-	char *pr = getenv("http_proxy");
-	if (pr != NULL) {set_proxy_from_string(pr);}
-
-	/* STEP 1: Read the zsync control file */
-	if ((zs = read_zsync_control_file(remotefile)) == NULL){
-		__android_log_write(ANDROID_LOG_ERROR, ZSYNC_ANDROID_TAG, "could not read zsync control file");
-		return -1;
-	}
-
-	/* Get eventual filename for output, and filename to write to while working */
-	char *local_name = get_filename(zs, remotefile);
-	memset(filename, '\0', 255);
-	sprintf(filename, "%s%s", absolute_path, local_name);
-	temp_file = malloc(strlen(filename)+6);
-	strcpy(temp_file, filename);
-	strcat(temp_file, ".part");
-
-
-	/* STEP 2: read available local data and fill in what we know in the
-	 *target file */
-	int i;
-
-	/* If the target file already exists, we're probably updating that file
-	 * - so it's a seed file */
-	if (!access(filename, R_OK)) {
-		seedfiles = append_ptrlist(&nseedfiles, seedfiles, filename);
-	}
-	/* If the .part file exists, it's probably an interrupted earlier
-	 * effort; a normal HTTP client would 'resume' from where it got to,
-	 * but zsync can't (because we don't know this data corresponds to the
-	 * current version on the remote) and doesn't need to, because we can
-	 * treat it like any other local source of data. Use it now. */
-	if (!access(temp_file, R_OK)) {
-		seedfiles = append_ptrlist(&nseedfiles, seedfiles, temp_file);
-	}
-
-	/* Try any seed files supplied by the command line */
-	for (i = 0; i < nseedfiles; i++) {
-		int dup = 0, j;
-
-		/* And stop reading seed files once the target is complete. */
-		if (zsync_status(zs) >= 2) break;
-
-		/* Skip dups automatically, to save the person running the program
-		 * having to worry about this stuff. */
-		for (j = 0; j < i; j++) {
-			if (!strcmp(seedfiles[i],seedfiles[j])) dup = 1;
-		}
-
-		/* And now, if not a duplicate, read it */
-		if (!dup)
-			read_seed_file(zs, seedfiles[i]);
-	}
-	/* Show how far that got us */
-	zsync_progress(zs, &local_used, NULL);
-
-
-	/* libzsync has been writing to a randomely-named temp file so far -
-	 * because we didn't want to overwrite the .part from previous runs. Now
-	 * we've read any previous .part, we can replace it with our new
-	 * in-progress run (which should be a superset of the old .part - unless
-	 * the content changed, in which case it still contains anything relevant
-	 * from the old .part). */
-	if (zsync_rename_file(zs, temp_file) != 0) {
-		__android_log_write(ANDROID_LOG_ERROR, ZSYNC_ANDROID_TAG, "could not rename zsync file");
-		return -1;
-	}
-
-	/* STEP 3: fetch remaining blocks via the URLs from the .zsync */
-	if (fetch_remaining_blocks(zs) != 0) {
-		__android_log_write(ANDROID_LOG_ERROR, ZSYNC_ANDROID_TAG, "failed to retrieve all remaining blocks - no valid download URLs remain");
-		return -1;
-	}
-
-	/* STEP 4: verify download */
-	int r;
-	r = zsync_complete(zs);
-	if (r == -1){
-		__android_log_write(ANDROID_LOG_ERROR, ZSYNC_ANDROID_TAG, "Aborting, download available in temp_file");
-		return -1;
-	}
-
-	free(temp_file);
-
-	/* Get any mtime that we is suggested to set for the file, and then shut
-	 * down the zsync_state as we are done on the file transfer. Getting the
-	 * current name of the file at the same time. */
-	mtime = zsync_mtime(zs);
-	temp_file = zsync_end(zs);
-
-	/* STEP 5: Move completed .part file into place as the final target */
-	if (filename) {
-		char *oldfile_backup = malloc(strlen(filename) + 8);
-		int ok = 1;
-
-		strcpy(oldfile_backup, filename);
-		strcat(oldfile_backup, ".zs-old");
-
-		if (!access(filename, F_OK)) {
-			/* Backup the old file. */
-			/* First, remove any previous backup. We don't care if this fails -
-			 * the link below will catch any failure */
-			unlink(oldfile_backup);
-
-			/* Try linking the filename to the backup file name, so we will
-			   atomically replace the target file in the next step.
-			   If that fails due to EPERM, it is probably a filesystem that
-			   doesn't support hard-links - so try just renaming it to the
-			   backup filename. */
-			if (link(filename, oldfile_backup) != 0
-				&& (errno != EPERM || rename(filename, oldfile_backup) != 0)) {
-				perror("linkname");
-				fprintf(stderr,
-						"Unable to back up old file %s - completed download left in %s\n",
-						filename, temp_file);
-				ok = 0;         /* Prevent overwrite of old file below */
-			}
-		}
-		if (ok) {
-			/* Rename the file to the desired name */
-			if (rename(temp_file, filename) == 0) {
-				/* final, final thing - set the mtime on the file if we have one */
-				if (mtime != -1) set_mtime(filename, mtime);
-			}
-			else {
-				perror("rename");
-				fprintf(stderr,
-						"Unable to back up old file %s - completed download left in %s\n",
-						filename, temp_file);
-			}
-		}
-		free(oldfile_backup);
-	}
-	else {
-		printf
-			("No filename specified for download - completed download left in %s\n",
-			 temp_file);
-	}
-
-	if (local_name){
-		free(local_name);
-	}
-
-	/* Final stats and cleanup */
-	free(referer);
-	free(temp_file);
-	return 0;
 }

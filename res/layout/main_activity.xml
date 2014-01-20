@@ -15,7 +15,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="State 2" />
-
+    
     <TextView
         android:id="@+id/text_log"
         android:layout_width="match_parent"
