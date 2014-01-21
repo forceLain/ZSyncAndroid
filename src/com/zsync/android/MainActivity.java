@@ -31,18 +31,16 @@ public class MainActivity extends Activity implements OnClickListener {
 
 	@Override
 	public void onClick(View v) {
-		ZSync zsync = new ZSync();
+		ZSync zsync = new ZSync(this);
 		File file = new File(getExternalFilesDir(
 	            Environment.DIRECTORY_DOWNLOADS), "zsync");
-		file.mkdirs();
-		String path = file.getAbsolutePath()+File.separator;
 		
 		switch (v.getId()) {
 		case R.id.state1:
-			zsync.startSync(this, URL_STATE_1, path);
+			zsync.sync(URL_STATE_1, file);
 			break;
 		case R.id.state2:
-			zsync.startSync(this, URL_STATE_2, path);
+			zsync.sync(URL_STATE_2, file);
 			break;
 		}
 	}

@@ -27,7 +27,4 @@
 
 #endif
 
-/*On android we can create and read files only from /data/data/<app-package>/ dir.
- * So hold this path in absolute_path[]
- */
-extern const char* absolute_path;
+extern char* temp_dir;

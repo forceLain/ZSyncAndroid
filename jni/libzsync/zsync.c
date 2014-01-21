@@ -33,7 +33,6 @@
  * - checksum verification of the entire output.
  */
 #include "zsglobal.h"
-const char* absolute_path;
 
 #include <stdio.h>
 #include <stdlib.h>

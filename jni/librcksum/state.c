@@ -58,8 +58,8 @@ struct rcksum_state *rcksum_init(zs_blockid nblocks, size_t blocksize,
     //old:
     //z->filename = strdup("rcksum-XXXXXX");
     //new for android:
-    z->filename = malloc(strlen(absolute_path)+14);
-    strcpy(z->filename, absolute_path);
+    z->filename = malloc(strlen(temp_dir)+14);
+    strcpy(z->filename, temp_dir);
     strcat(z->filename, "rcksum-XXXXXX");
 
     /* Initialise to 0 various state & stats */

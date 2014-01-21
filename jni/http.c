@@ -49,9 +49,8 @@
  * Simple implementation of stdio::tmpfile()
  */
 FILE* tempfile(){
-	//char* template = malloc(sizeof(absolute_path) + 11);
 	char template[256];
-	strcpy(template, absolute_path);
+	strcpy(template, temp_dir);
 	strcat(template, "tmp.XXXXXX");
 	int fd = mkstemp(template);
 	FILE* f = fdopen(fd, "w+");

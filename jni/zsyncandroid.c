@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <errno.h>
 #include <sys/stat.h>
 #include <utime.h>
 
@@ -12,213 +11,129 @@
 #include "zsglobal.h"
 #include "http.h"
 #include "libzsync/zsync.h"
-#include "url.h"
 
 char* main_url;
-const char* absolute_path;
-char* zsync_file;
+char* temp_dir;
 struct zsync_state *zs;
-char filename[255];
-char *temp_file;
+char* filename;
+char *temp_file_name;
 long long http_down;
 
 //PROTOTYPES
 struct zsync_state *read_zsync_control_file(const char *p);
 char *get_filename(const struct zsync_state *zs, const char *source_name);
-static int set_mtime(char* filename, time_t mtime);
-static void **append_ptrlist(int *n, void **p, void *a);
+void read_seed_file(struct zsync_state *z, const char *fname);
 
 void
-Java_com_zsync_android_ZSync_init(JNIEnv* env, jobject thiz, jstring url, jstring path, jstring zsyncfile){
+Java_com_zsync_android_ZSync_init(JNIEnv* env, jobject thiz, jstring url, jstring jtemp_dir){
 
 	const char* m_url = (*env)->GetStringUTFChars(env, url, 0);
-	const char* m_absolute_path = (*env)->GetStringUTFChars(env, path, 0); //file path for work and store output files
-	const char* m_zsync_file = (*env)->GetStringUTFChars(env, zsyncfile, 0); //pre-downloaded .zsync control file
+	const char* m_temp_dir = (*env)->GetStringUTFChars(env, jtemp_dir, 0); //file path for work and store output files
 
 	main_url = strdup(m_url);
-	absolute_path = strdup(m_absolute_path);
-	zsync_file = strdup(m_zsync_file);
+	temp_dir = strdup(m_temp_dir);
 
 	zs = NULL;
-	temp_file = NULL;
-	zs = read_zsync_control_file(main_url);
-	referer = strdup(main_url);
+	filename = NULL;
+	temp_file_name = NULL;
 	http_down = 0;
+	char *pr = getenv("http_proxy");
+	if (pr != NULL){
+		set_proxy_from_string(pr);
+	}
 
 	//DON'T FORGET THIS LINES
 	(*env)->ReleaseStringUTFChars(env, url, m_url);
-	(*env)->ReleaseStringUTFChars(env, path, m_absolute_path);
-	(*env)->ReleaseStringUTFChars(env, zsyncfile, m_zsync_file);
+	(*env)->ReleaseStringUTFChars(env, jtemp_dir, m_temp_dir);
 }
 
-void
-Java_com_zsync_android_ZSync_makeTempFile(JNIEnv* env, jobject thiz){
+jint
+Java_com_zsync_android_ZSync_readControlFile(JNIEnv* env, jobject thiz){
+	zs = read_zsync_control_file(main_url);
+	if (zs == NULL){
+		return -1;
+	} else {
+		return 0;
+	}
+}
+
+jstring
+Java_com_zsync_android_ZSync_getOriginName(JNIEnv* env, jobject thiz){
 	char *local_name = get_filename(zs, main_url);
-	memset(filename, '\0', 255);
-	sprintf(filename, "%s%s", absolute_path, local_name);
-	temp_file = malloc(strlen(filename)+6);
-	strcpy(temp_file, filename);
-	strcat(temp_file, ".part");
+	jstring j_local_name = (*env)->NewStringUTF(env, local_name);
 	free(local_name);
+	return j_local_name;
 }
 
 void
-Java_com_zsync_android_ZSync_readLocal(JNIEnv* env, jobject thiz){
-	char **seedfiles = NULL;
-	int nseedfiles = 0;
-	/* If the target file already exists, we're probably updating that file
-	 * - so it's a seed file */
-	if (!access(filename, R_OK)) {
-		seedfiles = append_ptrlist(&nseedfiles, seedfiles, filename);
-	}
-	/* If the .part file exists, it's probably an interrupted earlier
-	 * effort; a normal HTTP client would 'resume' from where it got to,
-	 * but zsync can't (because we don't know this data corresponds to the
-	 * current version on the remote) and doesn't need to, because we can
-	 * treat it like any other local source of data. Use it now. */
-	if (!access(temp_file, R_OK)) {
-		seedfiles = append_ptrlist(&nseedfiles, seedfiles, temp_file);
-	}
-
-	/* Try any seed files supplied by the command line */
-	int i;
-	for (i = 0; i < nseedfiles; i++) {
-		int dup = 0, j;
-
-		/* And stop reading seed files once the target is complete. */
-		if (zsync_status(zs) >= 2) break;
-
-		/* Skip dups automatically, to save the person running the program
-		 * having to worry about this stuff. */
-		for (j = 0; j < i; j++) {
-			if (!strcmp(seedfiles[i],seedfiles[j])) dup = 1;
-		}
-
-		/* And now, if not a duplicate, read it */
-		if (!dup)
-			read_seed_file(zs, seedfiles[i]);
-	}
-	/* Show how far that got us */
-	long long local_used; //for logging or etc.
-	zsync_progress(zs, &local_used, NULL);
+Java_com_zsync_android_ZSync_setFileName(JNIEnv* env, jobject thiz, jstring jfilename){
+	const char* m_filename = (*env)->GetStringUTFChars(env, jfilename, 0);
+	filename = strdup(m_filename);
+	(*env)->ReleaseStringUTFChars(env, jfilename, m_filename);
 }
 
 void
-Java_com_zsync_android_ZSync_renameTempFile(JNIEnv* env, jobject thiz){
-	zsync_rename_file(zs, temp_file);
+Java_com_zsync_android_ZSync_setTempFileName(JNIEnv* env, jobject thiz, jstring jtempfilename){
+	const char* m_tempfilename = (*env)->GetStringUTFChars(env, jtempfilename, 0);
+	temp_file_name = strdup(m_tempfilename);
+	(*env)->ReleaseStringUTFChars(env, jtempfilename, m_tempfilename);
 }
 
 void
-Java_com_zsync_android_ZSync_fetchRemainingBlocks(JNIEnv* env, jobject thiz){
-	fetch_remaining_blocks(zs);
-}
+Java_com_zsync_android_ZSync_fetchFromLocal(JNIEnv* env, jobject thiz, jstring jfilename){
+	const char* m_filename = (*env)->GetStringUTFChars(env, jfilename, 0);
 
-void
-Java_com_zsync_android_ZSync_completeZsync(JNIEnv* env, jobject thiz){
-	zsync_complete(zs);
-}
-
-void
-Java_com_zsync_android_ZSync_completeFile(JNIEnv* env, jobject thiz){
-	time_t mtime;
-	mtime = zsync_mtime(zs);
-	temp_file = zsync_end(zs); //zs releases there!
-
-	char *oldfile_backup = malloc(strlen(filename) + 8);
-	int ok = 1;
-
-	strcpy(oldfile_backup, filename);
-	strcat(oldfile_backup, ".zs-old");
-
-	if (!access(filename, F_OK)) {
-		/* Backup the old file. */
-		/* First, remove any previous backup. We don't care if this fails -
-		 * the link below will catch any failure */
-		unlink(oldfile_backup);
-
-		/* Try linking the filename to the backup file name, so we will
-		   atomically replace the target file in the next step.
-		   If that fails due to EPERM, it is probably a filesystem that
-		   doesn't support hard-links - so try just renaming it to the
-		   backup filename. */
-		if (link(filename, oldfile_backup) != 0
-			&& (errno != EPERM || rename(filename, oldfile_backup) != 0)) {
-			perror("linkname");
-			fprintf(stderr,
-					"Unable to back up old file %s - completed download left in %s\n",
-					filename, temp_file);
-			ok = 0;         /* Prevent overwrite of old file below */
-		}
+	if (zsync_status(zs) < 2){
+		read_seed_file(zs, m_filename);
 	}
-	if (ok) {
-		/* Rename the file to the desired name */
-		if (rename(temp_file, filename) == 0) {
-			/* final, final thing - set the mtime on the file if we have one */
-			if (mtime != -1) set_mtime(filename, mtime);
-		}
-		else {
-			perror("rename");
-			fprintf(stderr,
-					"Unable to back up old file %s - completed download left in %s\n",
-					filename, temp_file);
-		}
+
+	(*env)->ReleaseStringUTFChars(env, jfilename, m_filename);
+}
+
+void
+Java_com_zsync_android_ZSync_restartZsyncTempFile(JNIEnv* env, jobject thiz){
+	/* libzsync has been writing to a randomely-named temp file so far -
+	 * because we didn't want to overwrite the .part from previous runs. Now
+	 * we've read any previous .part, we can replace it with our new
+	 * in-progress run (which should be a superset of the old .part - unless
+	 * the content changed, in which case it still contains anything relevant
+	 * from the old .part). */
+	zsync_rename_file(zs, temp_file_name);
+}
+
+int
+Java_com_zsync_android_ZSync_fetchFromUrl(JNIEnv* env, jobject thiz){
+	int result = fetch_remaining_blocks(zs);
+	if (result == 0){
+		return 0;
+	} else {
+		return -1;
 	}
-	free(oldfile_backup);
+}
+
+int
+Java_com_zsync_android_ZSync_applyDiffs(JNIEnv* env, jobject thiz){
+	return zsync_complete(zs);
+}
+
+jlong
+Java_com_zsync_android_ZSync_getZsyncMtime(JNIEnv* env, jobject thiz){
+	time_t mtime = zsync_mtime(zs);
+	return mtime;
 }
 
 void
 Java_com_zsync_android_ZSync_release(JNIEnv* env, jobject thiz){
+	zsync_end(zs);
 	if (main_url){free(main_url);}
-	if (absolute_path){free(absolute_path);}
-	if (zsync_file){free(zsync_file);}
-	if (temp_file){free(temp_file);}
+	if (temp_dir){free(temp_dir);}
+	if (temp_file_name){free(temp_file_name);}
 	if (referer){free(referer);}
+	if (filename){free(filename);}
 }
 /*****************************************************************************************
  *
  *NATIVE CODE*/
-
-/* A ptrlist is a very simple structure for storing lists of pointers. This is
- * the only function in its API. The structure (not actually a struct) consists
- * of a (pointer to a) void*[] and an int giving the number of entries.
- *
- * ptrlist = append_ptrlist(&entries, ptrlist, new_entry)
- * Like realloc(2), this returns the new location of the ptrlist array; the
- * number of entries is passed by reference and updated in place. The new entry
- * is appended to the list.
- */
-static void **append_ptrlist(int *n, void **p, void *a) {
-    if (!a)
-        return p;
-    p = realloc(p, (*n + 1) * sizeof *p);
-    if (!p) {
-        fprintf(stderr, "out of memory\n");
-        exit(1);
-    }
-    p[*n] = a;
-    (*n)++;
-    return p;
-}
-
-static int set_mtime(char* filename, time_t mtime) {
-    struct stat s;
-    struct utimbuf u;
-
-    /* Get the access time, which I don't want to modify. */
-    if (stat(filename, &s) != 0) {
-        perror("stat");
-        return -1;
-    }
-
-    /* Set the modification time. */
-    u.actime = s.st_atime;
-    u.modtime = mtime;
-    if (utime(filename, &u) != 0) {
-        perror("utime");
-        return -1;
-    }
-    return 0;
-}
 
 /* fetch_remaining_blocks_http(zs, url, type)
  * For the given zsync_state, using the given URL (which is a copy of the
@@ -434,20 +349,8 @@ struct zsync_state *read_zsync_control_file(const char *p) {
     struct zsync_state *zs;
     char *lastpath = NULL;
 
-	//if (!is_url_absolute(p)) {
-	//	__android_log_write(ANDROID_LOG_ERROR, ZSYNC_ANDROID_TAG, "Bad URL");
-	//	return NULL;
-	//}
-
-	/* Try URL fetch */
-	//f = http_get(p, &lastpath, NULL);
-	//if (!f) {
-	//	__android_log_write(ANDROID_LOG_ERROR, ZSYNC_ANDROID_TAG, "could not read control file from URL");
-	//	return NULL;
-	//}
-
-    f = fopen(zsync_file, "r");
-	//referer = lastpath;
+    f = http_get(main_url, &lastpath, NULL);
+    referer = lastpath;
 
     /* Read the .zsync */
     if ((zs = zsync_begin(f)) == NULL) {
