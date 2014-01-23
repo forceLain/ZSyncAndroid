@@ -28,7 +28,7 @@ void
 Java_com_zsync_android_ZSync_init(JNIEnv* env, jobject thiz, jstring url, jstring jtemp_dir){
 
 	const char* m_url = (*env)->GetStringUTFChars(env, url, 0);
-	const char* m_temp_dir = (*env)->GetStringUTFChars(env, jtemp_dir, 0); //file path for work and store output files
+	const char* m_temp_dir = (*env)->GetStringUTFChars(env, jtemp_dir, 0);
 
 	main_url = strdup(m_url);
 	temp_dir = strdup(m_temp_dir);
@@ -42,7 +42,6 @@ Java_com_zsync_android_ZSync_init(JNIEnv* env, jobject thiz, jstring url, jstrin
 		set_proxy_from_string(pr);
 	}
 
-	//DON'T FORGET THIS LINES
 	(*env)->ReleaseStringUTFChars(env, url, m_url);
 	(*env)->ReleaseStringUTFChars(env, jtemp_dir, m_temp_dir);
 }
@@ -92,6 +91,12 @@ Java_com_zsync_android_ZSync_fetchFromLocal(JNIEnv* env, jobject thiz, jstring j
 
 void
 Java_com_zsync_android_ZSync_restartZsyncTempFile(JNIEnv* env, jobject thiz){
+
+	zsync_rename_file(zs, temp_file_name);
+}
+
+jint
+Java_com_zsync_android_ZSync_fetchFromUrl(JNIEnv* env, jobject thiz){
 	/* libzsync has been writing to a randomely-named temp file so far -
 	 * because we didn't want to overwrite the .part from previous runs. Now
 	 * we've read any previous .part, we can replace it with our new
@@ -99,10 +104,8 @@ Java_com_zsync_android_ZSync_restartZsyncTempFile(JNIEnv* env, jobject thiz){
 	 * the content changed, in which case it still contains anything relevant
 	 * from the old .part). */
 	zsync_rename_file(zs, temp_file_name);
-}
 
-int
-Java_com_zsync_android_ZSync_fetchFromUrl(JNIEnv* env, jobject thiz){
+	/* And now start the blocks downloading */
 	int result = fetch_remaining_blocks(zs);
 	if (result == 0){
 		return 0;
@@ -111,9 +114,13 @@ Java_com_zsync_android_ZSync_fetchFromUrl(JNIEnv* env, jobject thiz){
 	}
 }
 
-int
+jint
 Java_com_zsync_android_ZSync_applyDiffs(JNIEnv* env, jobject thiz){
-	return zsync_complete(zs);
+	int result = zsync_complete(zs);
+	if (result == -1){
+		return result;
+	}
+	return 0;
 }
 
 jlong
@@ -122,7 +129,7 @@ Java_com_zsync_android_ZSync_getZsyncMtime(JNIEnv* env, jobject thiz){
 	return mtime;
 }
 
-void
+jlong
 Java_com_zsync_android_ZSync_release(JNIEnv* env, jobject thiz){
 	zsync_end(zs);
 	if (main_url){free(main_url);}
@@ -130,6 +137,9 @@ Java_com_zsync_android_ZSync_release(JNIEnv* env, jobject thiz){
 	if (temp_file_name){free(temp_file_name);}
 	if (referer){free(referer);}
 	if (filename){free(filename);}
+	long long int loaded = http_down;
+	http_down = 0;
+	return loaded;
 }
 /*****************************************************************************************
  *
@@ -341,7 +351,7 @@ void read_seed_file(struct zsync_state *z, const char *fname) {
 
 /* zs = read_zsync_control_file(location_str)
  * Reads a zsync control file from a URL specified in
- * location_str; only http URLs are supported.
+ * main_url; only http URLs are supported.
  * NOTE: zsync control file is not a target file to sync
  */
 struct zsync_state *read_zsync_control_file(const char *p) {
@@ -350,17 +360,21 @@ struct zsync_state *read_zsync_control_file(const char *p) {
     char *lastpath = NULL;
 
     f = http_get(main_url, &lastpath, NULL);
+    if (!f){
+    	__android_log_write(ANDROID_LOG_ERROR, ZSYNC_ANDROID_TAG, "could not download .zsync control file");
+    	return NULL;
+    }
     referer = lastpath;
 
     /* Read the .zsync */
     if ((zs = zsync_begin(f)) == NULL) {
-    	__android_log_write(ANDROID_LOG_ERROR, ZSYNC_ANDROID_TAG, "could not read .zsync");
+    	__android_log_write(ANDROID_LOG_ERROR, ZSYNC_ANDROID_TAG, "could not read .zsync control file");
     	return NULL;
     }
 
     /* And close it */
     if (fclose(f) != 0) {
-    	__android_log_write(ANDROID_LOG_ERROR, ZSYNC_ANDROID_TAG, "could not close .zsync");
+    	__android_log_write(ANDROID_LOG_ERROR, ZSYNC_ANDROID_TAG, "could not close .zsync control file");
     	return NULL;
     }
     return zs;

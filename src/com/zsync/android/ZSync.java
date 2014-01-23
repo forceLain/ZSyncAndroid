@@ -12,29 +12,36 @@ public class ZSync{
 	private static final String TAG = ZSync.class.getSimpleName();
 	
 	private Context ctx;
+	private long bytesLoaded;
 	
 	public ZSync(Context ctx){
 		this.ctx = ctx;
 	}
 	
-	public boolean sync(final String url, final File workingDir){
+	public long getBytesLoaded(){
+		return bytesLoaded;
+	}
+	
+	public void syncOrThrow(final String url, final File workingDir){
+		bytesLoaded = 0;
+		
 		workingDir.mkdirs();
 		if (!workingDir.isDirectory()){
-			return false;
+			throw new IllegalArgumentException(workingDir.getAbsolutePath()+" is not a directory");
 		}
 		
 		File tempDir = new File(workingDir.getAbsolutePath()+File.separator+TEMP_DIR);
 		tempDir.mkdirs();
 		
 		if (!tempDir.isDirectory()){
-			return false;
+			throw new RuntimeException("Cannot create temp directory "+tempDir.getAbsolutePath());
 		}
 		
 		init(url, tempDir.getAbsolutePath()+File.separator);
 		if (readControlFile() != 0){
 			release();
 			deleteRecursive(tempDir);
-			return false;
+			throw new RuntimeException("Cannot read zsync control file");
 		}
 		String fileName = getOriginName();
 		String fullName = workingDir.getAbsolutePath()+File.separator+fileName;
@@ -42,26 +49,25 @@ public class ZSync{
 		setFileName(fullName);
 		setTempFileName(tempFileName);
 		if (isFileExists(fullName)){
-			fetchFromLocal(fullName);
+			fetchFromLocal(fullName); //if we have an old version
 		}
-		if (isFileExists(tempFileName)){
-			fetchFromLocal(tempFileName);
-		}
-		restartZsyncTempFile();
 		if (fetchFromUrl() != 0){
 			release();
 			deleteRecursive(tempDir);
-			return false;
+			throw new RuntimeException("Cannot fetch remaingn blocks from url "+url);
 		}
-		applyDiffs();
+		if (applyDiffs() != 0){
+			release();
+			deleteRecursive(tempDir);
+			throw new RuntimeException("Error while applying diffs to local version");
+		}
 		long modifTime = getZsyncMtime();
 		File originFile = renameFile(tempFileName, fullName);
 		if (originFile != null && originFile.isFile() && modifTime != -1){
 			originFile.setLastModified(modifTime);
 		}
-		release();
+		bytesLoaded = release();
 		deleteRecursive(tempDir);
-		return true;
 	}
 	
 	private void deleteRecursive(File fileOrDirectory) {
@@ -90,11 +96,10 @@ public class ZSync{
 
 	private native void init(String url, String tempDir);
 	private native int readControlFile();
-	private native void restartZsyncTempFile();
 	private native int fetchFromUrl();
-	private native void applyDiffs();
+	private native int applyDiffs();
 	private native void readLocal();
-	private native void release();
+	private native long release();
 	private native String getOriginName();
 	private native void setFileName(String fileName);
 	private native void fetchFromLocal(String fileName);
