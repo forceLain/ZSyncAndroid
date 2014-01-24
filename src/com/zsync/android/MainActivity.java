@@ -3,6 +3,7 @@ package com.zsync.android;
 import java.io.File;
 
 import android.app.Activity;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Environment;
 import android.util.Log;
@@ -50,16 +51,40 @@ public class MainActivity extends Activity implements OnClickListener {
 		}
 		
 		if (url != null){
-			ZSync zsync = new ZSync(this);
 			File file = new File(getExternalFilesDir(
 		            Environment.DIRECTORY_DOWNLOADS), "zsync");
+			MyTask task = new MyTask(url, file);
+			task.execute();
+			textView.setText("---");
+		}
+		
+	}
+	
+	private class MyTask extends AsyncTask<Void, Void, Long>{
+		
+		private String url;
+		private File tempDir;
+
+		public MyTask(String url, File tempDir){
+			this.url = url;
+			this.tempDir = tempDir;
+		}
+
+		@Override
+		protected Long doInBackground(Void... params) {
+			ZSync zsync = new ZSync(MainActivity.this);
 			try {				
-				zsync.syncOrThrow(url, file);
+				zsync.syncOrThrow(url, tempDir);
 			} catch (Exception e) {
-				Toast.makeText(this, "Zsync error", Toast.LENGTH_LONG).show();
 				Log.e(TAG, e.getMessage());
 			}
-			textView.setText("Loaded: "+zsync.getBytesLoaded());
+			
+			return zsync.getBytesLoaded();
+		}
+		
+		@Override
+		protected void onPostExecute(Long result) {
+			textView.setText("Loaded: "+result);
 		}
 		
 	}
