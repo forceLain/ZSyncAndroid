@@ -12,31 +12,35 @@
 #include "http.h"
 #include "libzsync/zsync.h"
 
-char* main_url;
+
 char* temp_dir;
-struct zsync_state *zs;
-char* filename;
-char *temp_file_name;
-long long http_down;
+//long long http_down;
 
 //PROTOTYPES
 struct zsync_state *read_zsync_control_file(const char *p);
 char *get_filename(const struct zsync_state *zs, const char *source_name);
 void read_seed_file(struct zsync_state *z, const char *fname);
 
-void
+struct object_holder {
+	struct zsync_state *zs;
+	char* main_url;
+	char* filename;
+	char* temp_file_name;
+	long long http_down;
+};
+
+jlong
 Java_com_zsync_android_ZSync_init(JNIEnv* env, jobject thiz, jstring url, jstring jtemp_dir){
 
 	const char* m_url = (*env)->GetStringUTFChars(env, url, 0);
 	const char* m_temp_dir = (*env)->GetStringUTFChars(env, jtemp_dir, 0);
 
-	main_url = strdup(m_url);
+	struct object_holder *oh = calloc(sizeof *oh, 1);
+
+	oh->main_url = strdup(m_url);
 	temp_dir = strdup(m_temp_dir);
 
-	zs = NULL;
-	filename = NULL;
-	temp_file_name = NULL;
-	http_down = 0;
+	oh->http_down = 0;
 	char *pr = getenv("http_proxy");
 	if (pr != NULL){
 		set_proxy_from_string(pr);
@@ -44,12 +48,15 @@ Java_com_zsync_android_ZSync_init(JNIEnv* env, jobject thiz, jstring url, jstrin
 
 	(*env)->ReleaseStringUTFChars(env, url, m_url);
 	(*env)->ReleaseStringUTFChars(env, jtemp_dir, m_temp_dir);
+
+	return (long)oh;
 }
 
 jint
-Java_com_zsync_android_ZSync_readControlFile(JNIEnv* env, jobject thiz){
-	zs = read_zsync_control_file(main_url);
-	if (zs == NULL){
+Java_com_zsync_android_ZSync_readControlFile(JNIEnv* env, jobject thiz, jlong lp){
+	struct object_holder* oh = (struct oh*)lp;
+	oh->zs = read_zsync_control_file(oh->main_url);
+	if (oh->zs == NULL){
 		return -1;
 	} else {
 		return 0;
@@ -57,56 +64,61 @@ Java_com_zsync_android_ZSync_readControlFile(JNIEnv* env, jobject thiz){
 }
 
 jstring
-Java_com_zsync_android_ZSync_getOriginName(JNIEnv* env, jobject thiz){
-	char *local_name = get_filename(zs, main_url);
+Java_com_zsync_android_ZSync_getOriginName(JNIEnv* env, jobject thiz, jlong lp){
+	struct object_holder* oh = (struct oh*)lp;
+	char *local_name = get_filename(oh->zs, oh->main_url);
 	jstring j_local_name = (*env)->NewStringUTF(env, local_name);
 	free(local_name);
 	return j_local_name;
 }
 
 void
-Java_com_zsync_android_ZSync_setFileName(JNIEnv* env, jobject thiz, jstring jfilename){
+Java_com_zsync_android_ZSync_setFileName(JNIEnv* env, jobject thiz, jstring jfilename, jlong lp){
+	struct object_holder* oh = (struct oh*)lp;
 	const char* m_filename = (*env)->GetStringUTFChars(env, jfilename, 0);
-	filename = strdup(m_filename);
+	oh->filename = strdup(m_filename);
 	(*env)->ReleaseStringUTFChars(env, jfilename, m_filename);
 }
 
 void
-Java_com_zsync_android_ZSync_setTempFileName(JNIEnv* env, jobject thiz, jstring jtempfilename){
+Java_com_zsync_android_ZSync_setTempFileName(JNIEnv* env, jobject thiz, jstring jtempfilename, jlong lp){
+	struct object_holder* oh = (struct oh*)lp;
 	const char* m_tempfilename = (*env)->GetStringUTFChars(env, jtempfilename, 0);
-	temp_file_name = strdup(m_tempfilename);
+	oh->temp_file_name = strdup(m_tempfilename);
 	(*env)->ReleaseStringUTFChars(env, jtempfilename, m_tempfilename);
 }
 
 void
-Java_com_zsync_android_ZSync_fetchFromLocal(JNIEnv* env, jobject thiz, jstring jfilename){
+Java_com_zsync_android_ZSync_fetchFromLocal(JNIEnv* env, jobject thiz, jstring jfilename, jlong lp){
+	struct object_holder* oh = (struct oh*)lp;
 	const char* m_filename = (*env)->GetStringUTFChars(env, jfilename, 0);
 
-	if (zsync_status(zs) < 2){
-		read_seed_file(zs, m_filename);
+	if (zsync_status(oh->zs) < 2){
+		read_seed_file(oh->zs, m_filename);
 	}
 
 	(*env)->ReleaseStringUTFChars(env, jfilename, m_filename);
 }
 
 void
-Java_com_zsync_android_ZSync_restartZsyncTempFile(JNIEnv* env, jobject thiz){
-
-	zsync_rename_file(zs, temp_file_name);
+Java_com_zsync_android_ZSync_restartZsyncTempFile(JNIEnv* env, jobject thiz, jlong lp){
+	struct object_holder* oh = (struct oh*)lp;
+	zsync_rename_file(oh->zs, oh->temp_file_name);
 }
 
 jint
-Java_com_zsync_android_ZSync_fetchFromUrl(JNIEnv* env, jobject thiz){
+Java_com_zsync_android_ZSync_fetchFromUrl(JNIEnv* env, jobject thiz, jlong lp){
+	struct object_holder* oh = (struct oh*)lp;
 	/* libzsync has been writing to a randomely-named temp file so far -
 	 * because we didn't want to overwrite the .part from previous runs. Now
 	 * we've read any previous .part, we can replace it with our new
 	 * in-progress run (which should be a superset of the old .part - unless
 	 * the content changed, in which case it still contains anything relevant
 	 * from the old .part). */
-	zsync_rename_file(zs, temp_file_name);
+	zsync_rename_file(oh->zs, oh->temp_file_name);
 
 	/* And now start the blocks downloading */
-	int result = fetch_remaining_blocks(zs);
+	int result = fetch_remaining_blocks(oh);
 	if (result == 0){
 		return 0;
 	} else {
@@ -115,8 +127,9 @@ Java_com_zsync_android_ZSync_fetchFromUrl(JNIEnv* env, jobject thiz){
 }
 
 jint
-Java_com_zsync_android_ZSync_applyDiffs(JNIEnv* env, jobject thiz){
-	int result = zsync_complete(zs);
+Java_com_zsync_android_ZSync_applyDiffs(JNIEnv* env, jobject thiz, jlong lp){
+	struct object_holder* oh = (struct oh*)lp;
+	int result = zsync_complete(oh->zs);
 	if (result == -1){
 		return result;
 	}
@@ -124,23 +137,31 @@ Java_com_zsync_android_ZSync_applyDiffs(JNIEnv* env, jobject thiz){
 }
 
 jlong
-Java_com_zsync_android_ZSync_getZsyncMtime(JNIEnv* env, jobject thiz){
-	time_t mtime = zsync_mtime(zs);
+Java_com_zsync_android_ZSync_getZsyncMtime(JNIEnv* env, jobject thiz, jlong lp){
+	struct object_holder* oh = (struct oh*)lp;
+	time_t mtime = zsync_mtime(oh->zs);
 	return mtime;
 }
 
 jlong
-Java_com_zsync_android_ZSync_release(JNIEnv* env, jobject thiz){
-	if (zs){
-		zsync_end(zs);
+Java_com_zsync_android_ZSync_release(JNIEnv* env, jobject thiz, jlong lp){
+	struct object_holder* oh = (struct oh*)lp;
+	if (oh->zs){
+		zsync_end(oh->zs);
 	}
-	if (main_url){free(main_url);}
-	if (temp_dir){free(temp_dir);}
-	if (temp_file_name){free(temp_file_name);}
-	if (referer){free(referer);}
-	if (filename){free(filename);}
-	long long int loaded = http_down;
-	http_down = 0;
+	if (oh->main_url){
+		free(oh->main_url);
+	}
+	if (oh->filename){
+		free(oh->filename);
+	}
+	if (oh->temp_file_name){
+		free(oh->temp_file_name);
+	}
+	long long int loaded = oh->http_down;
+	free(oh);
+	//if (temp_dir){free(temp_dir);}
+	//if (referer){free(referer);}
 	return loaded;
 }
 /*****************************************************************************************
@@ -154,8 +175,9 @@ Java_com_zsync_android_ZSync_release(JNIEnv* env, jobject thiz){
  * Returns true if this URL was useful, false if we crashed and burned.
  */
 #define BUFFERSIZE 8192
-int fetch_remaining_blocks_http(struct zsync_state *z, const char *url,
+int fetch_remaining_blocks_http(struct object_holder *oh, const char *url,
                                 int type) {
+	struct zsync_state *z = oh->zs;
     int ret = 0;
     struct range_fetch *rf;
     unsigned char *buf;
@@ -228,7 +250,7 @@ int fetch_remaining_blocks_http(struct zsync_state *z, const char *url,
 
     /* Clean up */
     free(buf);
-    http_down += range_fetch_bytes_down(rf);
+    oh->http_down += range_fetch_bytes_down(rf);
     zsync_end_receive(zr);
     range_fetch_end(rf);
     free(u);
@@ -239,8 +261,9 @@ int fetch_remaining_blocks_http(struct zsync_state *z, const char *url,
  * Using the URLs in the supplied zsync state, downloads data to complete the
  * target file.
  */
-int fetch_remaining_blocks(struct zsync_state *zs) {
+int fetch_remaining_blocks(struct object_holder *oh) {
     int n, utype;
+    struct zsync_state *zs = oh->zs;
     const char *const *url = zsync_get_urls(zs, &n, &utype);
     int *status;        /* keep status for each URL - 0 means no error */
     int ok_urls = n;
@@ -260,7 +283,7 @@ int fetch_remaining_blocks(struct zsync_state *zs) {
             const char *tryurl = url[try];
 
             /* Try fetching data from this URL */
-            int rc = fetch_remaining_blocks_http(zs, tryurl, utype);
+            int rc = fetch_remaining_blocks_http(oh, tryurl, utype);
             if (rc != 0) {
                 fprintf(stderr, "failed to retrieve from %s\n", tryurl);
                 status[try] = 1;
@@ -361,7 +384,7 @@ struct zsync_state *read_zsync_control_file(const char *p) {
     struct zsync_state *zs;
     char *lastpath = NULL;
 
-    f = http_get(main_url, &lastpath, NULL);
+    f = http_get(p, &lastpath, NULL);
     if (!f){
     	__android_log_write(ANDROID_LOG_ERROR, ZSYNC_ANDROID_TAG, "could not download .zsync control file");
     	return NULL;
@@ -386,7 +409,7 @@ struct zsync_state *read_zsync_control_file(const char *p) {
  * Returns a (malloced) string of the alphanumeric leading segment of the
  * filename in the given file path.
  */
-static char *get_filename_prefix(const char *p) {
+const char *get_filename_prefix(const char *p) {
     char *s = strdup(p);
     char *t = strrchr(s, '/');
     char *u;

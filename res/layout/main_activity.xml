@@ -5,22 +5,11 @@
     android:orientation="vertical" >
 
     <Button
-        android:id="@+id/state1"
+        android:id="@+id/go"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="State 1" />
+        android:text="Go" />
 
-    <Button
-        android:id="@+id/state2"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="State 2" />
-    
-    <Button
-        android:id="@+id/no_url"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="No URL" />
     
     <TextView
         android:id="@+id/text_log"

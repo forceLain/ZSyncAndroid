@@ -13,6 +13,7 @@ public class ZSync{
 	
 	private Context ctx;
 	private long bytesLoaded;
+	private long pointer;
 	
 	public ZSync(Context ctx){
 		this.ctx = ctx;
@@ -24,59 +25,38 @@ public class ZSync{
 	
 	public void syncOrThrow(final String url, final File workingDir){
 		bytesLoaded = 0;
-		
 		workingDir.mkdirs();
-		if (!workingDir.isDirectory()){
-			throw new IllegalArgumentException(workingDir.getAbsolutePath()+" is not a directory");
-		}
-		
 		File tempDir = new File(workingDir.getAbsolutePath()+File.separator+TEMP_DIR);
 		tempDir.mkdirs();
 		
-		if (!tempDir.isDirectory()){
-			throw new RuntimeException("Cannot create temp directory "+tempDir.getAbsolutePath());
-		}
-		
-		init(url, tempDir.getAbsolutePath()+File.separator);
-		if (readControlFile() != 0){
-			release();
-			deleteRecursive(tempDir);
+		pointer = init(url, tempDir.getAbsolutePath()+File.separator);
+		if (readControlFile(pointer) != 0){
+			release(pointer);
 			throw new RuntimeException("Cannot read zsync control file");
 		}
-		String fileName = getOriginName();
+		String fileName = getOriginName(pointer);
 		String fullName = workingDir.getAbsolutePath()+File.separator+fileName;
 		String tempFileName = fullName+".part";
-		setFileName(fullName);
-		setTempFileName(tempFileName);
+		setFileName(fullName, pointer);
+		setTempFileName(tempFileName, pointer);
 		if (isFileExists(fullName)){
-			fetchFromLocal(fullName); //if we have an old version
+			fetchFromLocal(fullName, pointer); //if we have an old version
 		}
-		if (fetchFromUrl() != 0){
-			release();
-			deleteRecursive(tempDir);
+		if (fetchFromUrl(pointer) != 0){
+			release(pointer);
 			throw new RuntimeException("Cannot fetch remaingn blocks from url "+url);
 		}
-		if (applyDiffs() != 0){
-			release();
-			deleteRecursive(tempDir);
+		if (applyDiffs(pointer) != 0){
+			release(pointer);
 			throw new RuntimeException("Error while applying diffs to local version");
 		}
-		long modifTime = getZsyncMtime();
+		long modifTime = getZsyncMtime(pointer);
 		File originFile = renameFile(tempFileName, fullName);
 		if (originFile != null && originFile.isFile() && modifTime != -1){
 			originFile.setLastModified(modifTime);
 		}
-		bytesLoaded = release();
-		deleteRecursive(tempDir);
-	}
-	
-	private void deleteRecursive(File fileOrDirectory) {
-	    if (fileOrDirectory.isDirectory()){
-	    	for (File child : fileOrDirectory.listFiles()){
-	    		deleteRecursive(child);	    		
-	    	}
-	    }
-	    fileOrDirectory.delete();
+		bytesLoaded = release(pointer);
+		pointer = 0;
 	}
 	
 	private boolean isFileExists(String filename) {
@@ -94,15 +74,14 @@ public class ZSync{
 		return null;
 	}
 
-	private native void init(String url, String tempDir);
-	private native int readControlFile();
-	private native int fetchFromUrl();
-	private native int applyDiffs();
-	private native void readLocal();
-	private native long release();
-	private native String getOriginName();
-	private native void setFileName(String fileName);
-	private native void fetchFromLocal(String fileName);
-	private native void setTempFileName(String tempFileName);
-	private native long getZsyncMtime();
+	private native long init(String url, String tempDir);
+	private native int readControlFile(long pointer);
+	private native int fetchFromUrl(long pointer);
+	private native int applyDiffs(long pointer);
+	private native long release(long pointer);
+	private native String getOriginName(long pointer);
+	private native void setFileName(String fileName, long pointer);
+	private native void fetchFromLocal(String fileName, long pointer);
+	private native void setTempFileName(String tempFileName, long pointer);
+	private native long getZsyncMtime(long pointer);
 }
