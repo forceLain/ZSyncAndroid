@@ -131,7 +131,9 @@ Java_com_zsync_android_ZSync_getZsyncMtime(JNIEnv* env, jobject thiz){
 
 jlong
 Java_com_zsync_android_ZSync_release(JNIEnv* env, jobject thiz){
-	zsync_end(zs);
+	if (zs){
+		zsync_end(zs);
+	}
 	if (main_url){free(main_url);}
 	if (temp_dir){free(temp_dir);}
 	if (temp_file_name){free(temp_file_name);}

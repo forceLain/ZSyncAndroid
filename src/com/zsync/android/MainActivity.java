@@ -15,7 +15,7 @@ import android.widget.Toast;
 
 public class MainActivity extends Activity implements OnClickListener {
 	
-	Button state1, state2, jniMigration;
+	Button state1, state2, noUrl;
 	TextView textView;
 	
 	private static final String URL_STATE_1 = "http://162.243.253.131/state2/bundle_top_stories.zip.zsync";
@@ -30,6 +30,8 @@ public class MainActivity extends Activity implements OnClickListener {
 		state1.setOnClickListener(this);
 		state2 = (Button) findViewById(R.id.state2);
 		state2.setOnClickListener(this);
+		noUrl = (Button) findViewById(R.id.no_url);
+		noUrl.setOnClickListener(this);
 		textView = (TextView) findViewById(R.id.text_log);
 	}
 
@@ -43,6 +45,10 @@ public class MainActivity extends Activity implements OnClickListener {
 			break;
 		case R.id.state2:
 			url = URL_STATE_2;
+			break;
+			
+		case R.id.no_url:
+			url = "http://162.243.253.131/prod/this_file_does_not_exists";
 			break;
 
 		default:
